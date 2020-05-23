@@ -12,6 +12,7 @@ bit correct_guess_flag;
 bit end_game_flag;
 char temp_adc_high;
 char temp_adc_low;
+int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
 void init(){
     
@@ -22,25 +23,34 @@ void init(){
     ADCON1 = 0;     // all pins analog : default Vrefs
     ADCON2 = 0x82;  // ADFM set : Tacq = 0.Tad : Fosc/32
     
-    ADIE = 0;       // ADC interrupt disable : timer0 will check that
-    TMR0IF = 0;     // disable for now
-    GODONE = 1;     // start conversion
-    adc_flag = 0;   // flag not set initially
+    PIE1bits.ADIE = 0;       // ADC interrupt disable : timer0 will check that
+    INTCONbits.T0IF = 0;     // disable for now
+    ADCON0bits.GODONE = 1;   // start conversion
+    adc_flag = 0;            // flag not set initially
     
-    TRISH = 0;      // 
-    RH0 = 1;        // enable digit 0
+    TRISH = 0;
+    PORTHbits.RH0 = 1;       // enable digit 0
     
-    TMR0ON = 1;     // start timer0
+    T0CON = 0b01000101;      // 8 bit : Prescale = 1/64
+    TMR0 = 131;              // for 50ms
+    timer0_postscaler = 0;      // create an interrupt on counter == 25
+    T0CONbits.TMR0ON = 1;    // start timer0
     return;
 }
 
 void __interrupt(low_priority) low_isr(){
-    if(TMR0IF == 1){
-        adc_flag      = 1;      // do adc_task in main
-        temp_adc_high = ADRESH; // get high bits
-        temp_adc_low  = ADRESL; // get low bits
-        GODONE        = 1       // start the conversion again
-        TMR0IF        = 0;      // clear timer0 interrupt flag
+    if(INTCONbits.T0IF == 1){
+        if(timer0_postscaler == 25){
+            INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
+            adc_flag = 1;           // do adc_task in main
+            temp_adc_high = ADRESH; // get high bits
+            temp_adc_low  = ADRESL; // get low bits
+            ADCON0bits.GODONE = 1;  // start the conversion again
+        }
+        else{
+            TMR0 = 131;             // reset timer0 load
+            timer0_postscaler++;
+        }
     }
     return;
 }
@@ -90,17 +100,17 @@ void blink_2_sec(){
 
 void latj_update(void){ // 7 Segment Number
     switch(adc_value){
-        case 0  : LATJ = 11111100;
-        case 1  : LATJ = 01100000;
-        case 2  : LATJ = 11011010;
-        case 3  : LATJ = 11110010;
-        case 4  : LATJ = 01100110;
-        case 5  : LATJ = 10110110;
-        case 6  : LATJ = 10111110;
-        case 7  : LATJ = 11100000;
-        case 8  : LATJ = 11111110;
-        case 9  : LATJ = 11100110;
-        default : LATJ = 11111100;
+        case 0  : LATJ = 0b11111100;
+        case 1  : LATJ = 0b01100000;
+        case 2  : LATJ = 0b11011010;
+        case 3  : LATJ = 0b11110010;
+        case 4  : LATJ = 0b01100110;
+        case 5  : LATJ = 0b10110110;
+        case 6  : LATJ = 0b10111110;
+        case 7  : LATJ = 0b11100000;
+        case 8  : LATJ = 0b11111110;
+        case 9  : LATJ = 0b11100110;
+        default : LATJ = 0b11111100;
     }
     return;    
 }
