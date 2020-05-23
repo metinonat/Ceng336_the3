@@ -10,11 +10,17 @@ bit adc_flag;
 bit rb4_flag;
 bit correct_guess_flag;
 bit end_game_flag;
+bit blinkShow;
 char temp_adc_high;
 char temp_adc_low;
+int tmr1Counter;
 
 void init(){
-    
+    tmr1Counter = 0; // initialize tmr1Counter to zero. 
+    blinkShow = 0;   // initially set hide on blink.
+    INTCON.GIE=0;   // All interrupts are disabled.
+
+
     ADRESH = 0;
     ADRESL = 0;
     
@@ -31,6 +37,48 @@ void init(){
     RH0 = 1;        // enable digit 0
     
     TMR0ON = 1;     // start timer0
+
+
+    /******** TIMER1 SETUP *******/
+    TMR1IF = 1;
+    PIE1.TMR1IE = 1;     // Timer1 interrupt is enabled.
+    IPR1.TMR1IP = 1;     // Set Timer1 overflow interrupt priority to high.
+    T1CON |= 0b10110000; // Set Timer1 to one 16-bit operation mode and prescaler to 1:8.
+    TMR1L = 0x0BDB;      // Preload Timer1 to 3035.
+    T1CON.TMR1ON = 1;    // Timer1 is started.
+
+
+    INTCON.GIE=1;   // All interrupts are enabled.
+    return;
+}
+
+void __interrupt(high_priority) high_isr() {
+    if(TMR1IF == 1 && !end_game_flag) {
+        tmr1Counter++;
+        if(tmr1Counter == 400) {
+            tmr1Counter = 0;    // Reset counter.
+            end_game_flag = 1;  // Game is over.
+        }
+    }
+    else if(TMR1IF == 1 && end_game_flag) {
+        tmr1Counter++;
+        if(tmr1Counter == 16) {
+            tmr1Counter = 0;    // Reset counter.
+            // TODO: Reset Game
+        }
+        else if(tmr1Counter % 4 == 0) {
+            if (!blinkShow) {
+                blinkShow = 1; 
+                // TODO: Show the special number on 7-Segment display.
+            }
+            else {
+                blinkShow = 0;
+                // TODO: Hide the special number on 7-Segment display.
+            }
+        }
+    }
+    PIR1.TMR1IF = 0;     // Clear Timer1 register overflow bit.
+    TMR1L = 0x0BDB;      // Preload Timer1  to 3035.
     return;
 }
 
