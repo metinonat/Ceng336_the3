@@ -6,10 +6,10 @@
 
 volatile int adc_value;
 volatile char special;
-short int adc_flag;
-short int rb4_flag;
-short int correct_guess_flag;
-short int end_game_flag;
+char adc_flag;
+char rb4_flag;
+char correct_guess_flag;
+char end_game_flag;
 char temp_adc_high;
 char temp_adc_low;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
