@@ -55,11 +55,11 @@ void init(){
 
     /******** TIMER1 SETUP *******/
     TMR1IF = 1;
-    PIE1.TMR1IE = 1;     // Timer1 interrupt is enabled.
-    IPR1.TMR1IP = 1;     // Set Timer1 overflow interrupt priority to high.
+    PIE1bits.TMR1IE = 1;     // Timer1 interrupt is enabled.
+    IPR1bits.TMR1IP = 1;     // Set Timer1 overflow interrupt priority to high.
     T1CON |= 0b10110000; // Set Timer1 to one 16-bit operation mode and prescaler to 1:8.
     TMR1L = 0x0BDB;      // Preload Timer1 to 3035.
-    T1CON.TMR1ON = 1;    // Timer1 is started.
+    T1CONbits.TMR1ON = 1;    // Timer1 is started.
 
 
 
@@ -96,7 +96,7 @@ void __interrupt(high_priority) high_isr() {
             }
         }
     }
-    PIR1.TMR1IF = 0;     // Clear Timer1 register overflow bit.
+    PIR1bits.TMR1IF = 0;     // Clear Timer1 register overflow bit.
     TMR1L = 0x0BDB;      // Preload Timer1  to 3035.
     return;
 }
