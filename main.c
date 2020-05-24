@@ -142,13 +142,12 @@ void adc_task(){ // get ADRESH & ADRESL :
 
 
 
-void blink_2_sec(){
-    /* initially turned on
-     * wait 500 ms then H=0, turn off
-     * wait 500 ms then H=1, turn on
-     * wait 500 ms then H=0, turn off
-     * wait 500 ms then H=1, turn on -> tartisalim
-     * */
+void showSpecialNumber(){
+    LATJ = special;
+    return;
+}
+void hideSpecialNumber(){
+    LATJ = 0;
     return;
 }
 
