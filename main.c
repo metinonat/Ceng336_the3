@@ -3,25 +3,17 @@
 #include <xc.h>
 #include "breakpoints.h"
 
-/* 7 segment numbers:
- * 0 : 11111100
- * 1 : 01100000
- * 2 : 11011010
- * 3 : 11110010
- * 4 : 01100110
- * 5 : 10110110
- * 6 : 10111110
- * 7 : 11100000
- * 8 : 11111110
- * 9 : 11100110
- */
 
 volatile int adc_value;
 volatile char special;
 char adc_flag;
+char rb4_flag;
+char end_game_flag;
+char blinkShow;
 char temp_adc_high;
 char temp_adc_low;
-char end_game_flag;
+int tmr1Counter;
+int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
 int counter_10;     // 1ms interrupt counter, for 10ms debounce duration
 char rb4_state;      // 0: Waiting for an input, 1: On debounce
@@ -31,32 +23,51 @@ char debounce_flag;  /* Rb4 change in state 1 or
                          Timer2 interrupt in state 1 sets this flag */
 char correct_guess_flag;
 
-void __interrupt(high_priority) high_isr() {
+void init(){
+    tmr1Counter = 0; // initialize tmr1Counter to zero. 
+    blinkShow = 0;   // initially set hide on blink.
+
+    // flag inits ----
+    end_game_flag = 0;
+    adc_flag = 0;
     
-}
+    // ADC inits
+    ADRESH = 0;
+    ADRESL = 0;
+    
+    ADCON0 = 0x31;  // channel 12 (AN12) : enable ADON
+    ADCON1 = 0x00;  // all pins analog : default Vrefs
+    ADCON2 = 0x82;  // ADFM set : Tacq = 0.Tad : Fosc/32
+    
+    PIE1bits.ADIE = 0;       // ADC interrupt disable : timer0 will check that
+    INTCONbits.GIEL = 1;
+    ADCON0bits.GO = 1;       // start the conversion
+    
+    // 7 segment display
+    TRISHbits.RH0 = 0;
+    TRISHbits.RH4 = 1;
+    TRISJ = 0;
+    PORTHbits.RH0 = 1;       // enable digit 0
+    LATJ = 0b11111100;       // set display as 0 initially
+    
+    // timer0
+    T0CON = 0b01000101;      // 8 bit : Prescale = 1/64
+    TMR0 = 131;              // for 50ms
+    INTCON2bits.TMR0IP = 0;  // Timer0 low priority
+    INTCONbits.T0IF = 0;     // disable for now
+    INTCONbits.TMR0IE = 1;   // enable timer0 interrupts
+    timer0_postscaler = 0;   // create an interrupt on counter == 25
+    
 
-void __interrupt(low_priority) low_isr() {
-    if (TMR2IF == 1) {
-        if (rb4_state == 1) {
-            debounce_flag = 1;
-        }
-        TMR2IF = 0;
-    }
-    if (RBIF == 1) {
-        if (rb4_state == 0) {
-            if (PORTBbits.RB4 == 1) {
-                press_flag = 1;
-            }
-        }
-        else {
-            debounce_flag = 1;
-        }
-        int read = PORTB;
-        RBIF = 0;
-    }
-}
 
-void rb4_init() {
+    /******** TIMER1 SETUP *******/
+    TMR1IF = 1;
+    PIE1bits.TMR1IE = 1;     // Timer1 interrupt is enabled.
+    IPR1bits.TMR1IP = 1;     // Set Timer1 overflow interrupt priority to high.
+    T1CON |= 0b10110000; // Set Timer1 to one 16-bit operation mode and prescaler to 1:8.
+    TMR1L = 0x0BDB;      // Preload Timer1 to 3035.
+    T1CONbits.TMR1ON = 1;    // Timer1 is started.
+
     // Timer2 Configuration
     TMR2IP = 0;          // Low priority
     TMR2IF = 0;          // Clear flag
@@ -83,11 +94,130 @@ void rb4_init() {
     TRISC = 0;
     TRISD = 0;
     TRISE = 0;
+
+    // start interrupts and timers
+    RCONbits.IPEN = 1;       // enable low priority interrupts
+    INTCONbits.GIEH = 1;     // high priorities enabled
+    INTCONbits.GIEL = 1;     // low priorities enabled
+    T0CONbits.TMR0ON = 1;    // start timer0
     
-    // Enable interrupts
-    IPEN = 1;
-    GIEH = 1;
-    GIEL = 1;
+    return;
+}
+
+void __interrupt(high_priority) high_isr() {
+    if(TMR1IF == 1 && !end_game_flag) {
+        tmr1Counter++;
+        if(tmr1Counter == 400) {
+            tmr1Counter = 0;    // Reset counter.
+            end_game_flag = 1;  // Game is over.
+        }
+    }
+    else if(TMR1IF == 1 && end_game_flag) {
+        tmr1Counter++;
+        if(tmr1Counter == 16) {
+            tmr1Counter = 0;    // Reset counter.
+            // TODO: Reset Game
+        }
+        else if(tmr1Counter % 4 == 0) {
+            if (!blinkShow) {
+                blinkShow = 1; 
+                // TODO: Show the special number on 7-Segment display.
+            }
+            else {
+                blinkShow = 0;
+                // TODO: Hide the special number on 7-Segment display.
+            }
+        }
+    }
+    PIR1bits.TMR1IF = 0;     // Clear Timer1 register overflow bit.
+    TMR1L = 0x0BDB;      // Preload Timer1  to 3035.
+    return;
+}
+
+void __interrupt(low_priority) low_isr(){
+    if(INTCONbits.T0IF == 1){
+        if(timer0_postscaler == 25){
+            INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
+            adc_flag = 1;           // do adc_task in main
+            temp_adc_high = ADRESH; // get high bits
+            temp_adc_low  = ADRESL; // get low bits
+            timer0_postscaler = 0;  // reset
+            ADCON0bits.ADON = 1;
+            ADCON0bits.GO = 1;  // start the conversion again
+        }
+        else{
+            INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
+            TMR0 = 131;             // reset timer0 load
+            timer0_postscaler++;
+        }
+    }
+    if (TMR2IF == 1) {
+        if (rb4_state == 1) {
+            debounce_flag = 1;
+        }
+        TMR2IF = 0;
+    }
+    if (RBIF == 1) {
+        if (rb4_state == 0) {
+            if (PORTBbits.RB4 == 1) {
+                press_flag = 1;
+            }
+        }
+        else {
+            debounce_flag = 1;
+        }
+        int read = PORTB;
+        RBIF = 0;
+    }
+    return;
+}
+
+void adc_task(){ // get ADRESH & ADRESL : 
+    
+    adc_flag = 0; // clear flag
+    adc_value = (temp_adc_high << 8) | temp_adc_low; // adc_value = temp_adc_high:temp_adc_low
+    
+    if(0 <= adc_value && adc_value <= 102){ adc_value = 0; }
+    else if(adc_value <= 204) { adc_value = 1; }
+    else if(adc_value <= 306) { adc_value = 2; }
+    else if(adc_value <= 408) { adc_value = 3; }
+    else if(adc_value <= 510) { adc_value = 4; }
+    else if(adc_value <= 612) { adc_value = 5; }
+    else if(adc_value <= 714) { adc_value = 6; }
+    else if(adc_value <= 816) { adc_value = 7; }
+    else if(adc_value <= 918) { adc_value = 8; }
+    else if(adc_value <= 1023){ adc_value = 9; }
+    
+    return;
+}
+
+
+
+void blink_2_sec(){
+    /* initially turned on
+     * wait 500 ms then H=0, turn off
+     * wait 500 ms then H=1, turn on
+     * wait 500 ms then H=0, turn off
+     * wait 500 ms then H=1, turn on -> tartisalim
+     * */
+    return;
+}
+
+void latj_update(void){ // 7 Segment Number
+    switch(adc_value){
+        case 0  : LATJ = 0b11111100; break;
+        case 1  : LATJ = 0b01100000; break;
+        case 2  : LATJ = 0b11011010; break;
+        case 3  : LATJ = 0b11110010; break;
+        case 4  : LATJ = 0b01100110; break;
+        case 5  : LATJ = 0b10110110; break;
+        case 6  : LATJ = 0b10111110; break;
+        case 7  : LATJ = 0b11100000; break;
+        case 8  : LATJ = 0b11111110; break;
+        case 9  : LATJ = 0b11100110; break;
+        default : LATJ = 0b11111100; break;
+    }
+    return;    
 }
 
 /** Call right after the press 
@@ -127,8 +257,8 @@ void rb4_debounce() {
 
 /** Turn on arrow leds or set correct guess flag **/
 void make_guess() {
-    int special_no = 8;
-    int current_no = 7;
+    int special_no = special_number();
+    int current_no = adc_value;
     if (current_no < special_no) {
         // Up arrow
         LATC = 0b00000010;
@@ -149,25 +279,46 @@ void make_guess() {
         LATD = 0;
         LATE = 0;
         correct_guess_flag = 1;
+        correct_guess();
+        latcde_update_complete();
+        end_game_flag = 1;
     }
     rb4_pressed = 0;
 }
 
 void main(void) {
-    rb4_init();
     while(1){
-        if (press_flag == 1) {
-            on_rb4_press();
-            press_flag = 0;
+        init();
+        init_complete(); // breakpoint
+        
+        while( !end_game_flag ){ // 5 second loop
+
+            if(adc_flag == 1){
+                adc_task();
+                adc_complete(); // breakpoint
+                latj_update();
+                latjh_update_complete(); // breakpoint
+            }
+            if (press_flag == 1) {
+                on_rb4_press();
+                press_flag = 0;
+            }
+            if (debounce_flag == 1) {
+                rb4_debounce();
+                debounce_flag = 0;
+            }
+            if (rb4_pressed == 1) {
+                make_guess();
+            }
         }
-        if (debounce_flag == 1) {
-            rb4_debounce();
-            debounce_flag = 0;
+        if (correct_guess_flag == 1) {
+            // to be implemented
         }
-        if (rb4_pressed == 1) {
-            make_guess();
+        else {
+            game_over();    // breakpoing
         }
+        
+        restart();  // breakpoint
     }
-    
     return;
 }
