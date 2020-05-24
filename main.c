@@ -81,18 +81,18 @@ void __interrupt(high_priority) high_isr() {
     }
     else if(TMR1IF == 1 && end_game_flag) {
         tmr1Counter++;
-        if(tmr1Counter == 16) {
+        if(tmr1Counter == 160) {
             tmr1Counter = 0;    // Reset counter.
-            // TODO: Reset Game
+            init(); // Check ????
         }
-        else if(tmr1Counter % 4 == 0) {
+        else if(tmr1Counter % 40 == 0) {
             if (!blinkShow) {
                 blinkShow = 1; 
-                // TODO: Show the special number on 7-Segment display.
+                showSpecialNumber();
             }
             else {
                 blinkShow = 0;
-                // TODO: Hide the special number on 7-Segment display.
+                hideSpecialNumber();
             }
         }
     }
@@ -143,7 +143,20 @@ void adc_task(){ // get ADRESH & ADRESL :
 
 
 void showSpecialNumber(){
-    LATJ = special;
+    
+    switch(special){
+        case 0  : LATJ = 0b11111100; break;
+        case 1  : LATJ = 0b01100000; break;
+        case 2  : LATJ = 0b11011010; break;
+        case 3  : LATJ = 0b11110010; break;
+        case 4  : LATJ = 0b01100110; break;
+        case 5  : LATJ = 0b10110110; break;
+        case 6  : LATJ = 0b10111110; break;
+        case 7  : LATJ = 0b11100000; break;
+        case 8  : LATJ = 0b11111110; break;
+        case 9  : LATJ = 0b11100110; break;
+        default : LATJ = 0b11111100; break;
+    }
     return;
 }
 void hideSpecialNumber(){
@@ -197,7 +210,7 @@ void main(void) {
             game_over(); // breakpoint
             latjh_update_complete(); // breakpoint
         }
-        blink_2_sec();
+       // blink_2_sec();
         restart(); // breakpoint
     }
     
