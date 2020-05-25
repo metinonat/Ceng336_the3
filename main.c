@@ -283,7 +283,7 @@ void rb4_debounce() {
 
 /** Turn on arrow leds or set correct guess flag **/
 void make_guess() {
-    int special_no = 5;//special_number(); // give input for debug
+    int special_no = special_number(); // give input for debug
     int current_no = adc_value;
     if (current_no < special_no) {
         // Up arrow
