@@ -12,6 +12,8 @@ char end_game_flag;
 char blinkShow;
 char temp_adc_high;
 char temp_adc_low;
+char waitBlink;
+char waitForBreakPoints;
 int tmr1Counter;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
@@ -26,6 +28,8 @@ char correct_guess_flag;
 void init(){
     tmr1Counter = 0; // initialize tmr1Counter to zero. 
     blinkShow = 0;   // initially set hide on blink.
+    waitBlink = 1;   // initially set to wait blink.
+    waitForBreakPoints = 1; // initally set to wait breakpoints.
 
     // flag inits ----
     end_game_flag = 0;
@@ -64,9 +68,10 @@ void init(){
     TMR1IF = 1;
     PIE1bits.TMR1IE = 1;     // Timer1 interrupt is enabled.
     IPR1bits.TMR1IP = 1;     // Set Timer1 overflow interrupt priority to high.
-    T1CON |= 0b10110000; // Set Timer1 to one 16-bit operation mode and prescaler to 1:8.
-    TMR1L = 0x0BDB;      // Preload Timer1 to 3035.
-    T1CONbits.TMR1ON = 1;    // Timer1 is started.
+    T1CON |= 0b10010000; // Set Timer1 to one 16-bit operation mode and prescaler to 1:2.
+    TMR1H = 0x0B;
+    TMR1L = 0xDB;      // Preload Timer1  to 3035.
+    
 
     // Timer2 Configuration
     TMR2IP = 0;          // Low priority
@@ -95,14 +100,42 @@ void init(){
     TRISD = 0;
     TRISE = 0;
 
+    adc_value = 0;
+    
     // start interrupts and timers
     RCONbits.IPEN = 1;       // enable low priority interrupts
     INTCONbits.GIEH = 1;     // high priorities enabled
     INTCONbits.GIEL = 1;     // low priorities enabled
     T0CONbits.TMR0ON = 1;    // start timer0
+    T1CONbits.TMR1ON = 1;    // Timer1 is started.
     
     return;
 }
+
+
+
+void showSpecialNumber(){
+    
+    switch(special){
+        case 0  : LATJ = 0b11111100; break;
+        case 1  : LATJ = 0b01100000; break;
+        case 2  : LATJ = 0b11011010; break;
+        case 3  : LATJ = 0b11110010; break;
+        case 4  : LATJ = 0b01100110; break;
+        case 5  : LATJ = 0b10110110; break;
+        case 6  : LATJ = 0b10111110; break;
+        case 7  : LATJ = 0b11100000; break;
+        case 8  : LATJ = 0b11111110; break;
+        case 9  : LATJ = 0b11100110; break;
+        default : LATJ = 0b11111100; break;
+    }
+    return;
+}
+void hideSpecialNumber(){
+    PORTHbits.RH0 = 0;
+    return;
+}
+
 
 void __interrupt(high_priority) high_isr() {
     if(TMR1IF == 1 && !end_game_flag) {
@@ -112,30 +145,33 @@ void __interrupt(high_priority) high_isr() {
             end_game_flag = 1;  // Game is over.
         }
     }
-    else if(TMR1IF == 1 && end_game_flag) {
+    else if(TMR1IF == 1 && end_game_flag && !waitForBreakPoints) { 
         tmr1Counter++;
-        if(tmr1Counter == 16) {
+        if(tmr1Counter == 160) {
+            hs_passed();
             tmr1Counter = 0;    // Reset counter.
-            // TODO: Reset Game
+            waitBlink = 0;      // blink is over, continue to execute.
         }
-        else if(tmr1Counter % 4 == 0) {
+        else if(tmr1Counter % 40 == 0) {
+            hs_passed(); // breakpoint : should be called per 500ms using TIMER1
             if (!blinkShow) {
                 blinkShow = 1; 
-                // TODO: Show the special number on 7-Segment display.
+                showSpecialNumber();
             }
             else {
                 blinkShow = 0;
-                // TODO: Hide the special number on 7-Segment display.
+                hideSpecialNumber();
             }
         }
     }
     PIR1bits.TMR1IF = 0;     // Clear Timer1 register overflow bit.
-    TMR1L = 0x0BDB;      // Preload Timer1  to 3035.
+    TMR1H = 0x0B;
+    TMR1L = 0xDB;      // Preload Timer1  to 3035.
     return;
 }
 
 void __interrupt(low_priority) low_isr(){
-    if(INTCONbits.T0IF == 1){
+    if(INTCONbits.T0IF == 1 && !end_game_flag){
         if(timer0_postscaler == 25){
             INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
             adc_flag = 1;           // do adc_task in main
@@ -172,7 +208,7 @@ void __interrupt(low_priority) low_isr(){
     return;
 }
 
-void adc_task(){ // get ADRESH & ADRESL : 
+void adc_task(){ // get ADRESH & ADRESL values
     
     adc_flag = 0; // clear flag
     adc_value = (temp_adc_high << 8) | temp_adc_low; // adc_value = temp_adc_high:temp_adc_low
@@ -193,17 +229,7 @@ void adc_task(){ // get ADRESH & ADRESL :
 
 
 
-void blink_2_sec(){
-    /* initially turned on
-     * wait 500 ms then H=0, turn off
-     * wait 500 ms then H=1, turn on
-     * wait 500 ms then H=0, turn off
-     * wait 500 ms then H=1, turn on -> tartisalim
-     * */
-    return;
-}
-
-void latj_update(void){ // 7 Segment Number
+void latj_update(void){ // 7 Segment Number Selection
     switch(adc_value){
         case 0  : LATJ = 0b11111100; break;
         case 1  : LATJ = 0b01100000; break;
@@ -257,7 +283,7 @@ void rb4_debounce() {
 
 /** Turn on arrow leds or set correct guess flag **/
 void make_guess() {
-    int special_no = special_number();
+    int special_no = 5;//special_number(); // give input for debug
     int current_no = adc_value;
     if (current_no < special_no) {
         // Up arrow
@@ -311,13 +337,17 @@ void main(void) {
                 make_guess();
             }
         }
-        if (correct_guess_flag == 1) {
-            // to be implemented
-        }
-        else {
-            game_over();    // breakpoing
-        }
+        INTCONbits.GIEL = 0;
         
+        if (correct_guess_flag == 0) {
+            game_over();    // breakpoint
+        }
+        waitForBreakPoints = 0; // start timer1 for blink 2 sec.
+        tmr1Counter = 0; // Reset Timer1 counter in case of game is ended earlier than 5 sec
+                         // So tmr1Counter remained more than zero.
+        while(waitBlink) {
+            // Wait 2 seconds after game finished.
+        }
         restart();  // breakpoint
     }
     return;
