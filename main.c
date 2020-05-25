@@ -8,13 +8,20 @@ volatile int adc_value;
 volatile char special;
 char adc_flag;
 char rb4_flag;
-char correct_guess_flag;
 char end_game_flag;
 char blinkShow;
 char temp_adc_high;
 char temp_adc_low;
 int tmr1Counter;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
+
+int counter_10;     // 1ms interrupt counter, for 10ms debounce duration
+char rb4_state;      // 0: Waiting for an input, 1: On debounce
+char rb4_pressed;    // Will be set when rb4 press is validated after 10ms
+char press_flag;     // Rb4 press in state 0 sets this flag
+char debounce_flag;  /* Rb4 change in state 1 or 
+                         Timer2 interrupt in state 1 sets this flag */
+char correct_guess_flag;
 
 void init(){
     tmr1Counter = 0; // initialize tmr1Counter to zero. 
@@ -61,13 +68,39 @@ void init(){
     TMR1L = 0x0BDB;      // Preload Timer1 to 3035.
     T1CONbits.TMR1ON = 1;    // Timer1 is started.
 
-
+    // Timer2 Configuration
+    TMR2IP = 0;          // Low priority
+    TMR2IF = 0;          // Clear flag
+    TMR2IE = 1;          // Enable interrupt
+    T2CON  = 0b01111011; // Set scalers
+    PR2    = 39;         // For 1ms
+    TMR2   = 0;          // Reset value
+    
+    // Rb4 Configuration
+    int read = PORTB;     
+    RBIF  = 0;            // Clear flag 
+    RBIP  = 0;            // Low priority
+    RBIE  = 1;            // Enable PORTB interrupts
+    TRISB = 0b00010000;   // Set RB4 as input
+       
+    // Reset flags
+    rb4_pressed        = 0;
+    rb4_state          = 0;
+    correct_guess_flag = 0;
+    press_flag         = 0;
+    debounce_flag      = 0;
+    
+    // Reset arrow leds
+    TRISC = 0;
+    TRISD = 0;
+    TRISE = 0;
 
     // start interrupts and timers
     RCONbits.IPEN = 1;       // enable low priority interrupts
     INTCONbits.GIEH = 1;     // high priorities enabled
     INTCONbits.GIEL = 1;     // low priorities enabled
     T0CONbits.TMR0ON = 1;    // start timer0
+    
     return;
 }
 
@@ -117,6 +150,24 @@ void __interrupt(low_priority) low_isr(){
             TMR0 = 131;             // reset timer0 load
             timer0_postscaler++;
         }
+    }
+    if (TMR2IF == 1) {
+        if (rb4_state == 1) {
+            debounce_flag = 1;
+        }
+        TMR2IF = 0;
+    }
+    if (RBIF == 1) {
+        if (rb4_state == 0) {
+            if (PORTBbits.RB4 == 1) {
+                press_flag = 1;
+            }
+        }
+        else {
+            debounce_flag = 1;
+        }
+        int read = PORTB;
+        RBIF = 0;
     }
     return;
 }
@@ -181,13 +232,74 @@ void latj_update(void){ // 7 Segment Number
     return;    
 }
 
+/** Call right after the press 
+    Set counter, set state and enable timer2 **/
+void on_rb4_press() {
+    counter_10 = 10;
+    rb4_state = 1;
+    TMR2ON = 1;
+}
+
+/** This function will be called every 1ms for 10ms
+ *  RB4: 1 -> Decrement counter until it hits 0, then validate the press
+ *       0 -> Noise detected, abort  **/
+void rb4_debounce() {
+    if (PORTBbits.RB4 == 1) {
+        if (counter_10 == 0) {
+            // validate press
+            // reset & disable
+            rb4_pressed = 1;
+            TMR2ON = 0;
+            TMR2   = 0;
+            rb4_state = 0;
+            rb4_handled();  // debug function
+        }
+        else {
+            // decrement counter
+            counter_10--;
+        }
+    }
+    else {
+        // reset & disable
+        TMR2ON = 0;
+        TMR2   = 0;
+        rb4_state = 0;
+    }
+}
+
+/** Turn on arrow leds or set correct guess flag **/
+void make_guess() {
+    int special_no = special_number();
+    int current_no = adc_value;
+    if (current_no < special_no) {
+        // Up arrow
+        LATC = 0b00000010;
+        LATD = 0b00001111;
+        LATE = 0b00000010;
+        latcde_update_complete();   // debug function
+    }
+    else if (current_no > special_no) {
+        // Down arrow
+        LATC = 0b00000100;
+        LATD = 0b00001111;
+        LATE = 0b00000100;
+        latcde_update_complete();   // debug function
+    }
+    else {
+        // Correct guess
+        LATC = 0;
+        LATD = 0;
+        LATE = 0;
+        correct_guess_flag = 1;
+        correct_guess();
+        latcde_update_complete();
+        end_game_flag = 1;
+    }
+    rb4_pressed = 0;
+}
 
 void main(void) {
-    
     while(1){
-    
-        special = 5;//special_number();
-        
         init();
         init_complete(); // breakpoint
         
@@ -199,20 +311,26 @@ void main(void) {
                 latj_update();
                 latjh_update_complete(); // breakpoint
             }
-            if(rb4_flag == 1){
-                // other things
-                correct_guess_flag == 1;
-                rb4_handled();
+            if (press_flag == 1) {
+                on_rb4_press();
+                press_flag = 0;
+            }
+            if (debounce_flag == 1) {
+                rb4_debounce();
+                debounce_flag = 0;
+            }
+            if (rb4_pressed == 1) {
+                make_guess();
             }
         }
-        // timer1 500 loading
-        if(correct_guess_flag == 0){ // initailly 0
-            game_over(); // breakpoint
-            latjh_update_complete(); // breakpoint
+        if (correct_guess_flag == 1) {
+            // to be implemented
         }
-       // blink_2_sec();
-        restart(); // breakpoint
+        else {
+            game_over();    // breakpoing
+        }
+        
+        restart();  // breakpoint
     }
-    
     return;
 }
