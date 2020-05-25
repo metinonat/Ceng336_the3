@@ -12,6 +12,7 @@ char end_game_flag;
 char blinkShow;
 char temp_adc_high;
 char temp_adc_low;
+char waitBlink;
 int tmr1Counter;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
@@ -26,6 +27,7 @@ char correct_guess_flag;
 void init(){
     tmr1Counter = 0; // initialize tmr1Counter to zero. 
     blinkShow = 0;   // initially set hide on blink.
+    waitBlink = 1;   // initially set to wait blink.
 
     // flag inits ----
     end_game_flag = 0;
@@ -104,6 +106,31 @@ void init(){
     return;
 }
 
+
+
+void showSpecialNumber(){
+    
+    switch(special){
+        case 0  : LATJ = 0b11111100; break;
+        case 1  : LATJ = 0b01100000; break;
+        case 2  : LATJ = 0b11011010; break;
+        case 3  : LATJ = 0b11110010; break;
+        case 4  : LATJ = 0b01100110; break;
+        case 5  : LATJ = 0b10110110; break;
+        case 6  : LATJ = 0b10111110; break;
+        case 7  : LATJ = 0b11100000; break;
+        case 8  : LATJ = 0b11111110; break;
+        case 9  : LATJ = 0b11100110; break;
+        default : LATJ = 0b11111100; break;
+    }
+    return;
+}
+void hideSpecialNumber(){
+    PORTHbits.RH0 = 0;
+    return;
+}
+
+
 void __interrupt(high_priority) high_isr() {
     if(TMR1IF == 1 && !end_game_flag) {
         tmr1Counter++;
@@ -116,7 +143,7 @@ void __interrupt(high_priority) high_isr() {
         tmr1Counter++;
         if(tmr1Counter == 160) {
             tmr1Counter = 0;    // Reset counter.
-            init(); // Check ????
+            waitBlink = 0;      // blink is over, continue to execute.
         }
         else if(tmr1Counter % 40 == 0) {
             if (!blinkShow) {
@@ -192,28 +219,6 @@ void adc_task(){ // get ADRESH & ADRESL :
 }
 
 
-
-void showSpecialNumber(){
-    
-    switch(special){
-        case 0  : LATJ = 0b11111100; break;
-        case 1  : LATJ = 0b01100000; break;
-        case 2  : LATJ = 0b11011010; break;
-        case 3  : LATJ = 0b11110010; break;
-        case 4  : LATJ = 0b01100110; break;
-        case 5  : LATJ = 0b10110110; break;
-        case 6  : LATJ = 0b10111110; break;
-        case 7  : LATJ = 0b11100000; break;
-        case 8  : LATJ = 0b11111110; break;
-        case 9  : LATJ = 0b11100110; break;
-        default : LATJ = 0b11111100; break;
-    }
-    return;
-}
-void hideSpecialNumber(){
-    LATJ = 0;
-    return;
-}
 
 void latj_update(void){ // 7 Segment Number
     switch(adc_value){
@@ -323,13 +328,17 @@ void main(void) {
                 make_guess();
             }
         }
+        tmr1Counter = 0; // Reset Timer1 counter in case of game is ended earlier than 5 sec
+                         // So tmr1Counter remained more than zero.
         if (correct_guess_flag == 1) {
             // to be implemented
         }
         else {
             game_over();    // breakpoing
         }
-        
+        while(waitBlink) {
+            // Wait 2 seconds after game finished.
+        }
         restart();  // breakpoint
     }
     return;
