@@ -13,6 +13,7 @@ char blinkShow;
 char temp_adc_high;
 char temp_adc_low;
 char waitBlink;
+char waitForBreakPoints;
 int tmr1Counter;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
@@ -28,6 +29,7 @@ void init(){
     tmr1Counter = 0; // initialize tmr1Counter to zero. 
     blinkShow = 0;   // initially set hide on blink.
     waitBlink = 1;   // initially set to wait blink.
+    waitForBreakPoints = 1; // initally set to wait breakpoints.
 
     // flag inits ----
     end_game_flag = 0;
@@ -139,7 +141,7 @@ void __interrupt(high_priority) high_isr() {
             end_game_flag = 1;  // Game is over.
         }
     }
-    else if(TMR1IF == 1 && end_game_flag) {
+    else if(TMR1IF == 1 && end_game_flag && !waitForBreakPoints) {
         tmr1Counter++;
         if(tmr1Counter == 160) {
             tmr1Counter = 0;    // Reset counter.
@@ -328,14 +330,15 @@ void main(void) {
                 make_guess();
             }
         }
-        tmr1Counter = 0; // Reset Timer1 counter in case of game is ended earlier than 5 sec
-                         // So tmr1Counter remained more than zero.
         if (correct_guess_flag == 1) {
             // to be implemented
         }
         else {
             game_over();    // breakpoing
         }
+        waitForBreakPoints = 0; // start timer1 for blink 2 sec.
+        tmr1Counter = 0; // Reset Timer1 counter in case of game is ended earlier than 5 sec
+                         // So tmr1Counter remained more than zero.
         while(waitBlink) {
             // Wait 2 seconds after game finished.
         }
