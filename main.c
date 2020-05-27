@@ -6,6 +6,7 @@
 
 volatile int adc_value;
 volatile char special;
+int digital_value;
 char adc_flag;
 char rb4_flag;
 char end_game_flag;
@@ -102,6 +103,7 @@ void init(){
     TRISE = 0;
 
     adc_value = 0;
+    digital_value = 0;
     
     // start interrupts and timers
     RCONbits.IPEN = 1;       // enable low priority interrupts
@@ -217,16 +219,16 @@ void adc_task(){ // get ADRESH & ADRESL values
     adc_flag = 0; // clear flag
     adc_value = (temp_adc_high << 8) | temp_adc_low; // adc_value = temp_adc_high:temp_adc_low
     
-    if(0 <= adc_value && adc_value <= 102){ adc_value = 0; }
-    else if(adc_value <= 204) { adc_value = 1; }
-    else if(adc_value <= 306) { adc_value = 2; }
-    else if(adc_value <= 408) { adc_value = 3; }
-    else if(adc_value <= 510) { adc_value = 4; }
-    else if(adc_value <= 612) { adc_value = 5; }
-    else if(adc_value <= 714) { adc_value = 6; }
-    else if(adc_value <= 816) { adc_value = 7; }
-    else if(adc_value <= 918) { adc_value = 8; }
-    else if(adc_value <= 1023){ adc_value = 9; }
+    if(0 <= adc_value && adc_value <= 102){ digital_value = 0; }
+    else if(adc_value <= 204) { digital_value = 1; }
+    else if(adc_value <= 306) { digital_value = 2; }
+    else if(adc_value <= 408) { digital_value = 3; }
+    else if(adc_value <= 510) { digital_value = 4; }
+    else if(adc_value <= 612) { digital_value = 5; }
+    else if(adc_value <= 714) { digital_value = 6; }
+    else if(adc_value <= 816) { digital_value = 7; }
+    else if(adc_value <= 918) { digital_value = 8; }
+    else if(adc_value <= 1023){ digital_value = 9; }
     
     return;
 }
@@ -234,7 +236,7 @@ void adc_task(){ // get ADRESH & ADRESL values
 
 
 void latj_update(void){ // 7 Segment Number Selection
-    switch(adc_value){
+    switch(digital_value){
         case 0  : LATJ = 0b11111100; break;
         case 1  : LATJ = 0b01100000; break;
         case 2  : LATJ = 0b11011010; break;
@@ -316,7 +318,7 @@ void rb4_debounce() {
 /** Turn on arrow leds or set correct guess flag **/
 void make_guess() {
     int special_no = special_number(); // give input for debug
-    int current_no = adc_value;
+    int current_no = digital_value;
     if (current_no < special_no) {
         // Up arrow
         LATC = 0b00000010;
