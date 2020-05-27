@@ -18,10 +18,11 @@ char waitForBreakPoints;
 int tmr1Counter;
 int timer0_postscaler; // software implemented postscaler for timer0 : 50ms
 
-int counter_10;     // 1ms interrupt counter, for 10ms debounce duration
-char rb4_state;      // 0: Waiting for an input, 1: On debounce
-char rb4_pressed;    // Will be set when rb4 press is validated after 10ms
-char press_flag;     // Rb4 press in state 0 sets this flag
+int counter_10;      // 1ms interrupt counter, for 10ms debounce duration
+char rb4_state;      // 0: Waiting for an input, 1: On press debounce
+                     // 2: On release debounce
+char rb4_pressed;    // Will be set when rb4 debounced after 10ms
+char button_flag;    // Rb4 press/release in state 0 sets this flag
 char debounce_flag;  /* Rb4 change in state 1 or 
                          Timer2 interrupt in state 1 sets this flag */
 char correct_guess_flag;
@@ -93,7 +94,7 @@ void init(){
     rb4_pressed        = 0;
     rb4_state          = 0;
     correct_guess_flag = 0;
-    press_flag         = 0;
+    button_flag         = 0;
     debounce_flag      = 0;
     
     // Reset arrow leds
@@ -195,19 +196,17 @@ void __interrupt(low_priority) low_isr(){
         ADCON0bits.GODONE = 0;
     }
     if (TMR2IF == 1) {
-        if (rb4_state == 1) {
+        if (rb4_state != 0) {
             debounce_flag = 1;
         }
         TMR2IF = 0;
     }
     if (RBIF == 1) {
-        if (rb4_state == 0) {
-            if (PORTBbits.RB4 == 1) {
-                press_flag = 1;
-            }
+        if (rb4_state != 0) {
+            debounce_flag = 1;
         }
         else {
-            debounce_flag = 1;
+            button_flag = 1;
         }
         int read = PORTB;
         RBIF = 0;
@@ -253,38 +252,66 @@ void latj_update(void){ // 7 Segment Number Selection
     return;    
 }
 
-/** Call right after the press 
+// Reset timer2 and rb4_state
+void reset_debounce() {
+    TMR2ON = 0;
+    TMR2   = 0;
+    rb4_state = 0;
+    return;
+}
+
+/** Call right after the press or release
     Set counter, set state and enable timer2 **/
-void on_rb4_press() {
+void on_rb4_press_or_release() {
+    switch(PORTBbits.RB4) {
+        case 0:
+            rb4_state = 2;
+            break;
+        case 1:
+            rb4_state = 1;
+            break;
+    }
     counter_10 = 10;
-    rb4_state = 1;
     TMR2ON = 1;
 }
 
 /** This function will be called every 1ms for 10ms
  *  RB4: 1 -> Decrement counter until it hits 0, then validate the press
- *       0 -> Noise detected, abort  **/
+ *       0 -> Noise detected, abort  
+ **/
 void rb4_debounce() {
-    if (PORTBbits.RB4 == 1) {
-        if (counter_10 == 0) {
-            // validate press
-            // reset & disable
-            rb4_pressed = 1;
-            TMR2ON = 0;
-            TMR2   = 0;
-            rb4_state = 0;
-            rb4_handled();  // debug function
+    if (rb4_state == 1) {
+        if (PORTBbits.RB4 == 1) {
+            if (counter_10 == 0) {
+                // validate press
+                // reset & disable
+                reset_debounce();
+                rb4_pressed = 1;
+                rb4_handled();  // debug function
+            }
+            else {
+                // ongoing press debounce
+                counter_10--;
+            }
         }
         else {
-            // decrement counter
+            // reset & disable
+            reset_debounce();
+        }
+    }
+    else if (rb4_state == 2) {
+        if (PORTBbits.RB4 == 0 && counter_10 != 0) {
+            // ongoing release debounce
             counter_10--;
+        }
+        else {
+            // validate release
+            // reset & disable
+            reset_debounce();
         }
     }
     else {
-        // reset & disable
-        TMR2ON = 0;
-        TMR2   = 0;
-        rb4_state = 0;
+        // should not happen
     }
 }
 
@@ -316,7 +343,6 @@ void make_guess() {
         latcde_update_complete();
         end_game_flag = 1;
     }
-    rb4_pressed = 0;
 }
 
 void main(void) {
@@ -332,9 +358,9 @@ void main(void) {
                 latj_update();
                 latjh_update_complete(); // breakpoint
             }
-            if (press_flag == 1) {
-                on_rb4_press();
-                press_flag = 0;
+            if (button_flag == 1) {
+                on_rb4_press_or_release();
+                button_flag = 0;
             }
             if (debounce_flag == 1) {
                 rb4_debounce();
@@ -342,6 +368,7 @@ void main(void) {
             }
             if (rb4_pressed == 1) {
                 make_guess();
+                rb4_pressed = 0;
             }
         }
         INTCONbits.GIEL = 0;
