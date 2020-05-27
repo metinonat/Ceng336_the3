@@ -45,7 +45,7 @@ void init(){
     
     PIE1bits.ADIE = 0;       // ADC interrupt disable : timer0 will check that
     INTCONbits.GIEL = 1;
-    ADCON0bits.GO = 1;       // start the conversion
+    ADCON0bits.GODONE = 1;       // start the conversion
     
     // 7 segment display
     TRISHbits.RH0 = 0;
@@ -58,7 +58,7 @@ void init(){
     T0CON = 0b01000101;      // 8 bit : Prescale = 1/64
     TMR0 = 131;              // for 50ms
     INTCON2bits.TMR0IP = 0;  // Timer0 low priority
-    INTCONbits.T0IF = 0;     // disable for now
+    INTCONbits.TMR0IF = 0;   // disable for now
     INTCONbits.TMR0IE = 1;   // enable timer0 interrupts
     timer0_postscaler = 0;   // create an interrupt on counter == 25
     
@@ -106,6 +106,8 @@ void init(){
     RCONbits.IPEN = 1;       // enable low priority interrupts
     INTCONbits.GIEH = 1;     // high priorities enabled
     INTCONbits.GIEL = 1;     // low priorities enabled
+    ADCON0bits.ADON = 1;     // enable ADC module
+    ADCON0bits.GODONE = 1;
     T0CONbits.TMR0ON = 1;    // start timer0
     T1CONbits.TMR1ON = 1;    // Timer1 is started.
     
@@ -171,21 +173,24 @@ void __interrupt(high_priority) high_isr() {
 }
 
 void __interrupt(low_priority) low_isr(){
-    if(INTCONbits.T0IF == 1 && !end_game_flag){
+    if(INTCONbits.TMR0IF == 1 && !end_game_flag){
         if(timer0_postscaler == 25){
-            INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
-            adc_flag = 1;           // do adc_task in main
-            temp_adc_high = ADRESH; // get high bits
-            temp_adc_low  = ADRESL; // get low bits
+            INTCONbits.TMR0IF   = 0;  // clear timer0 interrupt flag
             timer0_postscaler = 0;  // reset
-            ADCON0bits.ADON = 1;
-            ADCON0bits.GO = 1;  // start the conversion again
+            ADCON0bits.GODONE = 1;  // start the conversion again
         }
         else{
-            INTCONbits.T0IF   = 0;  // clear timer0 interrupt flag
+            INTCONbits.TMR0IF   = 0;  // clear timer0 interrupt flag
             TMR0 = 131;             // reset timer0 load
             timer0_postscaler++;
         }
+    }
+    if(PIR1bits.ADIF == 1){ // A2D conversion is done
+        PIR1bits.ADIF = 0;
+        adc_flag = 1;           // do adc_task in main
+        temp_adc_high = ADRESH; // get high bits
+        temp_adc_low  = ADRESL; // get low bits
+        ADCON0bits.GODONE = 0;
     }
     if (TMR2IF == 1) {
         if (rb4_state == 1) {
