@@ -174,7 +174,7 @@ void __interrupt(high_priority) high_isr() {
 
 void __interrupt(low_priority) low_isr(){
     if(INTCONbits.TMR0IF == 1 && !end_game_flag){
-        if(timer0_postscaler == 25){
+        if(timer0_postscaler == 60){
             INTCONbits.TMR0IF   = 0;  // clear timer0 interrupt flag
             timer0_postscaler = 0;  // reset
             ADCON0bits.GODONE = 1;  // start the conversion again
